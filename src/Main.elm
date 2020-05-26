@@ -10,14 +10,23 @@ import RemoteData exposing (RemoteData)
 
 type alias Model =
     { input : String
-    , output : RemoteData.WebData String
+    , output : RemoteData FormatError String
     }
 
 
 type Msg
     = GotInput String
     | Format
-    | FormatResponse (RemoteData.WebData String)
+    | FormatResponse (RemoteData FormatError String)
+
+
+type FormatError
+    = HttpBadUrl String
+    | HttpTimeout
+    | HttpNetworkError
+    | HttpBadStatus Int String -- 400 < status < 500
+    | ServerError Int String -- status >= 500
+    | SyntaxProblem String -- status == 400
 
 
 initialModel : Model
@@ -41,13 +50,19 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         GotInput newInput ->
-            ( { model | input = newInput, output = RemoteData.NotAsked }
+            ( { model
+                | input = newInput
+                , output = RemoteData.NotAsked
+              }
             , Cmd.none
             )
 
         Format ->
             if RemoteData.isNotAsked model.output || RemoteData.isFailure model.output then
-                ( { model | output = RemoteData.Loading }
+                ( { model
+                    | output =
+                        RemoteData.Loading
+                  }
                 , format model.input
                 )
 
@@ -55,7 +70,10 @@ update msg model =
                 ( model, Cmd.none )
 
         FormatResponse newOutput ->
-            ( { model | output = newOutput, input = newOutput |> RemoteData.toMaybe |> Maybe.withDefault model.input }
+            ( { model
+                | output = newOutput
+                , input = newOutput |> RemoteData.toMaybe |> Maybe.withDefault model.input
+              }
             , Cmd.none
             )
 
@@ -65,8 +83,34 @@ format code =
     Http.post
         { url = "http://localhost:8080/"
         , body = Http.stringBody "text/plain" code
-        , expect = Http.expectString (RemoteData.fromResult >> FormatResponse)
+        , expect = Http.expectStringResponse (RemoteData.fromResult >> FormatResponse) formatResponse
         }
+
+
+formatResponse : Http.Response String -> Result FormatError String
+formatResponse response =
+    case response of
+        Http.BadUrl_ url ->
+            Err (HttpBadUrl url)
+
+        Http.Timeout_ ->
+            Err HttpTimeout
+
+        Http.NetworkError_ ->
+            Err HttpNetworkError
+
+        Http.BadStatus_ metadata body ->
+            if metadata.statusCode == 400 then
+                Err (SyntaxProblem body)
+
+            else if metadata.statusCode >= 500 then
+                Err (ServerError metadata.statusCode body)
+
+            else
+                Err (HttpBadStatus metadata.statusCode body)
+
+        Http.GoodStatus_ _ body ->
+            Ok body
 
 
 view : Model -> Browser.Document Msg
@@ -79,6 +123,7 @@ view { input, output } =
                 [ Html.textarea
                     [ Events.onInput GotInput
                     , Events.onBlur Format
+                    , Attr.disabled (RemoteData.isLoading output)
                     , Attr.style "width" "100%"
                     , Attr.style "font-family" "monospace"
                     , Attr.rows 20
@@ -86,7 +131,9 @@ view { input, output } =
                     ]
                     []
                 ]
-            , Html.div []
+            , Html.div
+                [ Attr.style "margin-top" ".5rem"
+                ]
                 [ Html.button
                     [ Events.onClick Format
                     , Attr.disabled (RemoteData.isLoading output)
@@ -96,12 +143,13 @@ view { input, output } =
                     [ Attr.style "margin-left" "1rem" ]
                     [ viewStatus output ]
                 ]
+            , viewSyntaxError output
             ]
         ]
     }
 
 
-viewStatus : RemoteData.WebData String -> Html Msg
+viewStatus : RemoteData FormatError String -> Html msg
 viewStatus data =
     case data of
         RemoteData.NotAsked ->
@@ -112,25 +160,46 @@ viewStatus data =
                 [ Attr.style "color" "#666" ]
                 [ Html.text "Formatting..." ]
 
-        RemoteData.Failure (Http.BadUrl url) ->
+        RemoteData.Failure (HttpBadUrl url) ->
             viewError ("Bad URL: " ++ url)
 
-        RemoteData.Failure Http.Timeout ->
+        RemoteData.Failure HttpTimeout ->
             viewError "It took too long to get a response."
 
-        RemoteData.Failure Http.NetworkError ->
+        RemoteData.Failure HttpNetworkError ->
             viewError "Please check your connection."
 
-        RemoteData.Failure (Http.BadStatus status) ->
-            viewError ("Bad Status: " ++ String.fromInt status)
+        RemoteData.Failure (HttpBadStatus status message) ->
+            viewError ("Bad Status (" ++ String.fromInt status ++ "): " ++ message)
 
-        RemoteData.Failure (Http.BadBody debug) ->
-            viewError ("Bad Body: " ++ debug)
+        RemoteData.Failure (ServerError status message) ->
+            viewError ("Server Error (" ++ String.fromInt status ++ "): " ++ message)
 
-        RemoteData.Success code ->
+        RemoteData.Failure (SyntaxProblem _) ->
+            viewError "Syntax Problem..."
+
+        RemoteData.Success _ ->
             Html.span
                 [ Attr.style "color" "#090" ]
                 [ Html.text "Formatted!" ]
+
+
+viewSyntaxError : RemoteData FormatError a -> Html msg
+viewSyntaxError data =
+    case data of
+        RemoteData.Failure (SyntaxProblem message) ->
+            Html.div
+                [ Attr.style "font-family" "monospace"
+                , Attr.style "white-space" "pre-wrap"
+                , Attr.style "border" "1px solid #999"
+                , Attr.style "margin-top" "1rem"
+                , Attr.style "padding" "2px"
+                , Attr.style "overflow-wrap" "break-word"
+                ]
+                [ Html.text message ]
+
+        _ ->
+            Html.text ""
 
 
 viewError : String -> Html msg
@@ -138,13 +207,3 @@ viewError message =
     Html.span
         [ Attr.style "color" "#f00" ]
         [ Html.text ("Error! " ++ message) ]
-
-
-viewOutput : RemoteData.WebData String -> Html Msg
-viewOutput data =
-    case data of
-        RemoteData.Success code ->
-            Html.text code
-
-        _ ->
-            Html.text ""
