@@ -18,6 +18,7 @@ type Msg
     = GotCode String
     | Format
     | FormatResponse (RemoteData FormatError String)
+    | ValidateResponse (RemoteData FormatError String)
 
 
 type FormatError
@@ -54,7 +55,7 @@ update msg model =
                 | code = newCode
                 , format = RemoteData.NotAsked
               }
-            , Cmd.none
+            , validate newCode
             )
 
         Format ->
@@ -75,6 +76,22 @@ update msg model =
               }
             , Cmd.none
             )
+
+        ValidateResponse newValidate ->
+            ( { model
+                | format = RemoteData.unwrap RemoteData.NotAsked (\_ -> RemoteData.succeed ()) newValidate
+              }
+            , Cmd.none
+            )
+
+
+validate : String -> Cmd Msg
+validate code =
+    Http.post
+        { url = "http://localhost:8080/validate"
+        , body = Http.stringBody "text/plain" code
+        , expect = Http.expectStringResponse (RemoteData.fromResult >> ValidateResponse) formatResponse
+        }
 
 
 format : String -> Cmd Msg
