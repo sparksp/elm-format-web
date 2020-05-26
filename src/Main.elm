@@ -9,13 +9,13 @@ import RemoteData exposing (RemoteData)
 
 
 type alias Model =
-    { input : String
-    , output : RemoteData FormatError ()
+    { code : String
+    , format : RemoteData FormatError ()
     }
 
 
 type Msg
-    = GotInput String
+    = GotCode String
     | Format
     | FormatResponse (RemoteData FormatError String)
 
@@ -31,8 +31,8 @@ type FormatError
 
 initialModel : Model
 initialModel =
-    { input = "module Main exposing (..)\n\n"
-    , output = RemoteData.NotAsked
+    { code = "module Main exposing (..)\n\n"
+    , format = RemoteData.NotAsked
     }
 
 
@@ -49,30 +49,29 @@ main =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        GotInput newInput ->
+        GotCode newCode ->
             ( { model
-                | input = newInput
-                , output = RemoteData.NotAsked
+                | code = newCode
+                , format = RemoteData.NotAsked
               }
             , Cmd.none
             )
 
         Format ->
-            if RemoteData.isNotAsked model.output || RemoteData.isFailure model.output then
+            if RemoteData.isNotAsked model.format || RemoteData.isFailure model.format then
                 ( { model
-                    | output =
-                        RemoteData.Loading
+                    | format = RemoteData.Loading
                   }
-                , format model.input
+                , format model.code
                 )
 
             else
                 ( model, Cmd.none )
 
-        FormatResponse newOutput ->
+        FormatResponse newFormat ->
             ( { model
-                | output = RemoteData.map (\_ -> ()) newOutput
-                , input = newOutput |> RemoteData.toMaybe |> Maybe.withDefault model.input
+                | code = newFormat |> RemoteData.toMaybe |> Maybe.withDefault model.code
+                , format = RemoteData.map (\_ -> ()) newFormat
               }
             , Cmd.none
             )
@@ -114,20 +113,20 @@ formatResponse response =
 
 
 view : Model -> Browser.Document Msg
-view { input, output } =
+view model =
     { title = "elm-format"
     , body =
         [ Html.div [ Attr.style "padding" ".5rem 1rem" ]
             [ Html.h1 [] [ Html.text "elm-format" ]
             , Html.div [ Attr.style "display" "flex" ]
                 [ Html.textarea
-                    [ Events.onInput GotInput
+                    [ Events.onInput GotCode
                     , Events.onBlur Format
-                    , Attr.disabled (RemoteData.isLoading output)
+                    , Attr.disabled (RemoteData.isLoading model.format)
                     , Attr.style "width" "100%"
                     , Attr.style "font-family" "monospace"
                     , Attr.rows 20
-                    , Attr.value input
+                    , Attr.value model.code
                     ]
                     []
                 ]
@@ -136,21 +135,22 @@ view { input, output } =
                 ]
                 [ Html.button
                     [ Events.onClick Format
-                    , Attr.disabled (RemoteData.isLoading output)
+                    , Attr.disabled (RemoteData.isLoading model.format || RemoteData.isSuccess model.format)
                     ]
                     [ Html.text "Format!" ]
                 , Html.span
                     [ Attr.style "margin-left" "1rem" ]
-                    [ viewStatus output ]
+                    [ viewFormatStatus model.format
+                    ]
                 ]
-            , viewSyntaxError output
+            , viewSyntaxError model.format
             ]
         ]
     }
 
 
-viewStatus : RemoteData FormatError () -> Html msg
-viewStatus data =
+viewFormatStatus : RemoteData FormatError () -> Html msg
+viewFormatStatus data =
     case data of
         RemoteData.NotAsked ->
             Html.text ""
