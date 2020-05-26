@@ -1,6 +1,7 @@
 # elm-format as a service
 
 ```
+yarn
 yarn run dev
 ```
 
