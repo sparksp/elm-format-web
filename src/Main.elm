@@ -10,7 +10,7 @@ import RemoteData exposing (RemoteData)
 
 type alias Model =
     { input : String
-    , output : RemoteData FormatError String
+    , output : RemoteData FormatError ()
     }
 
 
@@ -71,7 +71,7 @@ update msg model =
 
         FormatResponse newOutput ->
             ( { model
-                | output = newOutput
+                | output = RemoteData.map (\_ -> ()) newOutput
                 , input = newOutput |> RemoteData.toMaybe |> Maybe.withDefault model.input
               }
             , Cmd.none
@@ -149,7 +149,7 @@ view { input, output } =
     }
 
 
-viewStatus : RemoteData FormatError String -> Html msg
+viewStatus : RemoteData FormatError () -> Html msg
 viewStatus data =
     case data of
         RemoteData.NotAsked ->
@@ -178,7 +178,7 @@ viewStatus data =
         RemoteData.Failure (SyntaxProblem _) ->
             viewError "Syntax Problem..."
 
-        RemoteData.Success _ ->
+        RemoteData.Success () ->
             Html.span
                 [ Attr.style "color" "#090" ]
                 [ Html.text "Formatted!" ]
