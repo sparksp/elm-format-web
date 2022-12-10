@@ -16,7 +16,7 @@
   "dependencies": {
     "dotenv": "^8.2.0",
     "elm-format": "^0.8.3",
-    "express": "^4.17.1",
+    "express": "^4.17.3",
     "serverless-http": "^2.5.0",
     "strip-ansi": "^6.0.0"
   },
